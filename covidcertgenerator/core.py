@@ -3,14 +3,14 @@
 import segno
 
 import zlib
-
+import json
 from base45 import b45decode, b45encode
 import cbor2
 from cose.messages import CoseMessage
 
 
 def decode_from_qr_text(text):
-    """Return decoded JSON string from QR code"""
+    """Return decoded JSON from a QR code text"""
     text_without_prefix = text[4:]
     compressed = b45decode(text_without_prefix)
     cwt = zlib.decompress(compressed)
@@ -20,7 +20,7 @@ def decode_from_qr_text(text):
 
 
 def encode_to_qr_text(json_object):
-    """Return QR code text from JSON string"""
+    """Return QR code text from a JSON object"""
     cbor_encoded = cbor2.dumps(json_object)
 
     # cose_message = Sign1Message(
@@ -30,9 +30,13 @@ def encode_to_qr_text(json_object):
     # )
     # cose_encoded = cose_message.encode()  # not this time, pal:
 
-    head = b'\xd2\x84C\xa1\x01&\xa1\x04H&:\xa5\xf6\xb0k\x8crY\x013'
+    head = b'\xd2\x84C\xa1\x01&\xa1\x04H&:\xa5\xf6\xb0k\x8cr'
     signature = b'X@q\xa5X{\x03\xb9\x17\x90@\x8b$\x9e\xb3\xf0\x7f(\xbf\xe7\xd6\xfc<G\xd2\xd0\xe3B?b\xbd\x82\xbd\x8a\xb3~\xd6\x19P\rYS"\x8c+\xbd\xdb3\x1e\xe7#\xef\xcb\xc5}add\x9dfND\t,\xb9\x94'
-    cose_encoded = head + cbor_encoded + signature  # absurd da stane
+
+    payload_len = len(cbor_encoded)
+    payload_len_bytes = payload_len.to_bytes(2, byteorder='big')  # because it's larger than 255 bytes
+    cbor_payload_type = b'\x59' + payload_len_bytes  # data field of size `payload_len_bytes`
+    cose_encoded = head + cbor_payload_type + cbor_encoded + signature  # absurd da stane
 
     compressed = zlib.compress(cose_encoded)
     # but for some reason the second byte is "wrong":
@@ -45,12 +49,55 @@ def encode_to_qr_text(json_object):
 
 
 def generate_qr_image(text):
-    qrcode = segno.make(text, version=20)
+    qrcode = segno.make(text, version=16)
     qrcode.save('qr.png')
 
 
+def generate_custom_json(*,
+    first_name_original="ИВАН ДИМИТРОВ",
+    first_name_official="IVAN<DIMITROV",
+    last_name_original="ГЕОРГИЕВ",
+    last_name_official="GEORGIEV",
+    date_of_birth_YYYY_MM_DD="1984-04-20",
+    issued_timestamp=1622592000,
+    expiry_timestamp=1654128000,
+):
+    return json.loads(json.dumps({
+        "1": "BG",
+        "4": expiry_timestamp,
+        "6": issued_timestamp,
+        "-260": {
+            "1": {
+                "v": [
+                    {
+                        "ci": "urn:uvci:01:BG:DJFVEZSFMD763P5L#H",
+                        "co": "BG",
+                        "dn": 2,
+                        "dt": "2021-06-02",
+                        "is": "Ministry of Health",
+                        "ma": "ORG-100001699",
+                        "mp": "EU/1/21/1529",
+                        "sd": 2,
+                        "tg": "840539006",
+                        "vp": "J07BX03"
+                    }
+                ],
+                "dob": date_of_birth_YYYY_MM_DD,
+                "nam": {
+                    "fn": first_name_original,
+                    "fnt": first_name_official,
+                    "gn": last_name_original,
+                    "gnt": last_name_official
+                },
+                "ver": "1.3.0"
+            }
+        }
+    }))
+
+
 if __name__ == '__main__':
-    # for test purposes
-    jsonobj = decode_from_qr_text("HC1:NCFOXN*TS0BI$ZDYSH$PJ6RQPM3 RF:D4M+H-36HD7-TM9W4OFW5DOP-IW/T3QGNO4*J8OX4W$C2VLWLI3K5YO9OUUMK9WLIK*L5R1G$JA-LI*NVPO8UK00SR%BF:PYI0I*FCZ7:PIWEGLS47%S7Y48YIZ73423ZQT+EJKD3XW4UZ2 NVV5TN%2UP20J5/5LEBFD-48YI+T4D-4HRVUMNMD3*20EJK-+K.IA.C8KRDL4O54O6KKUJK6HI0JAXD15IAXMFU*GSHGRKMXGG6DBYCBMQN:HG5PAHGG8KES/F-1JF.KAU0VWNVGISKE MCAOI8%MYYN7L6QV9P86QQOUK1A-5+TN795-Z73G88GPC%F7TT$BB9Z2*DB3:5GLNNUTMB0PR17T0B3V1FDUZ464K/:FHD4DGC9NTXW49:H 4M5LO$.FC:HC%6S+C+8AFT5D75W9AAABG64IIK%DD- 64:9N618/RRXUA6G-CRCGW*PR4O38M9: 3GKRV0U2UR /MH7U+SCV3E3DM:8I 7S.3P-AQ7CSW*77UJVLIK27PAQLOAQ9TX40*VBL5")
-    ascii = encode_to_qr_text(jsonobj)
-    generate_qr_image(ascii)
+    testjson = generate_custom_json()
+    testqr = encode_to_qr_text(testjson)
+    testdecode = decode_from_qr_text(testqr)
+    generate_qr_image(testqr)
+
